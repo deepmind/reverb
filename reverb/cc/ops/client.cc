@@ -70,6 +70,7 @@ REGISTER_OP("ReverbClientUpdatePriorities")
     .Input("table: string")
     .Input("keys: uint64")
     .Input("priorities: double")
+    .Input("keys_to_delete: uint64")
     .Doc(R"doc(
 Blocking call to update the priorities of a collection of items. Keys that could
 not be found in table `table` on server are ignored and does not impact the rest
@@ -187,7 +188,9 @@ class UpdatePrioritiesOp : public tensorflow::OpKernel {
     const tensorflow::Tensor* keys;
     OP_REQUIRES_OK(context, context->input("keys", &keys));
     const tensorflow::Tensor* priorities;
-    OP_REQUIRES_OK(context, context->input("priorities", &priorities));
+    OP_REQUIRES_OK(context, context->input("priorities", &priorities));    
+    const tensorflow::Tensor* keys_to_delete;
+    OP_REQUIRES_OK(context, context->input("keys_to_delete", &keys_to_delete));
 
     OP_REQUIRES(
         context, keys->dims() == 1,
@@ -197,6 +200,9 @@ class UpdatePrioritiesOp : public tensorflow::OpKernel {
                     "Tensors `keys` and `priorities` do not match in shape (",
                     keys->shape().DebugString(), " vs. ",
                     priorities->shape().DebugString(), ")"));
+    OP_REQUIRES(
+        context, keys_to_delete->dims() == 1,
+        InvalidArgument("Tensors `keys_to_delete` must be of rank 1."));
 
     std::string table_str = table->scalar<tstring>()();
     std::vector<KeyWithPriority> updates;
@@ -207,6 +213,11 @@ class UpdatePrioritiesOp : public tensorflow::OpKernel {
       updates.push_back(std::move(update));
     }
 
+    std::vector<uint64_t> deletes;
+    for (int i = 0; i < keys_to_delete->dim_size(0); i++) {
+      deletes.push_back(keys_to_delete->flat<tensorflow::uint64>()(i));
+    }
+
     // The call will only fail if the Reverb-server is brought down during an
     // active call (e.g preempted). When this happens the request is retried and
     // since MutatePriorities sets `wait_for_ready` the request will no be sent
@@ -214,7 +225,7 @@ class UpdatePrioritiesOp : public tensorflow::OpKernel {
     // this retry in this tight loop.
     absl::Status status;
     do {
-      status = resource->client()->MutatePriorities(table_str, updates, {});
+      status = resource->client()->MutatePriorities(table_str, updates, deletes);
     } while (absl::IsUnavailable(status) || absl::IsDeadlineExceeded(status));
     OP_REQUIRES_OK(context, ToTensorflowStatus(status));
   }

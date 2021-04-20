@@ -117,6 +117,7 @@ class TFClient:
                         table: str,
                         keys: tf.Tensor,
                         priorities: tf.Tensor,
+                        keys_to_delete: Optional[tf.Tensor] = None,
                         name: str = None):
     """Creates op for updating priorities of existing items in the replay.
 
@@ -126,16 +127,20 @@ class TFClient:
       table: Probability table to update.
       keys: Keys of the items to update. Must be same length as `priorities`.
       priorities: New priorities for `keys`. Must be same length as `keys`.
+      keys_to_delete: Keys of the items to delete
       name: Optional name for the operation.
 
     Returns:
       A tf-op for performing the update.
     """
 
+    if keys_to_delete is None:
+      keys_to_delete = tf.constant([], dtype=tf.uint64)
+
     with tf.name_scope(name, f'{self._name}_update_priorities',
                        ['update_priorities']) as scope:
       return gen_client_ops.reverb_client_update_priorities(
-          self._handle, table, keys, priorities, name=scope)
+          self._handle, table, keys, priorities, keys_to_delete, name=scope)
 
   def dataset(self,
               table: str,
