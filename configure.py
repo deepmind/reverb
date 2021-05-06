@@ -69,6 +69,13 @@ def main():
   reset_configure_bazelrc()
   setup_python(environ_cp)
 
+  write_to_bazelrc('')
+  if sys.platform == 'darwin':
+    write_to_bazelrc('# https://github.com/googleapis/google-cloud-cpp-spanner/issues/1003')
+    write_to_bazelrc('build --copt=-DGRPC_BAZEL_BUILD')
+  else:
+    write_to_bazelrc('build --linkopt="-lrt -lm"')
+
 
 def get_from_env_or_user_or_default(environ_cp, var_name, ask_for_var,
                                     var_default):

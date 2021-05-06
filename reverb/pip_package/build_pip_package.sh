@@ -32,7 +32,7 @@ function build_wheel() {
   pushd ${TMPDIR} > /dev/null
 
   echo $(date) : "=== Building wheel"
-  "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} --plat manylinux2010_x86_64 > /dev/null
+  "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} --plat ${PLATFORM} > /dev/null
   DEST=${TMPDIR}/dist/
   if [[ ! "$TMPDIR" -ef "$DESTDIR" ]]; then
     mkdir -p ${DESTDIR}
@@ -71,6 +71,19 @@ function prepare_src() {
   # must remain where they are for TF to find them.
   find "${TMPDIR}/reverb/cc" -type d -name ops -prune -o -name '*.so' \
     -exec mv {} "${TMPDIR}/reverb" \;
+
+  # Copy darwin libs over so they can be loaded at runtime
+  so_lib_dir=$(ls $RUNFILES | grep solib) || true
+  if [ -n "${so_lib_dir}" ]; then
+    mkdir -p "${TMPDIR}/${so_lib_dir}"
+    proto_so_dir=$(ls ${RUNFILES}/${so_lib_dir} | grep proto) || true
+    for dir in ${proto_so_dir}; do
+      echo "===== DIR = $dir"
+      cp -R ${RUNFILES}/${so_lib_dir}/${dir} "${TMPDIR}/${so_lib_dir}"
+    done
+
+    cp -r $TMPDIR/${so_lib_dir} `dirname $PYTHON_LIB_PATH`
+  fi
 }
 
 function usage() {
@@ -80,6 +93,7 @@ function usage() {
   echo "    --release         build a release version"
   echo "    --dst             path to copy the .whl into."
   echo "    --tf-version      tensorflow version dependency passed to setup.py."
+  echo "    --plat            platform."
   echo ""
   exit 1
 }
@@ -90,6 +104,8 @@ function main() {
   TF_VERSION_FLAG=""
   # This is where the source code is copied and where the whl will be built.
   DST_DIR=""
+
+  PLATFORM="manylinux2010_x86_64"
 
   while true; do
     if [[ "$1" == "--help" ]]; then
@@ -103,6 +119,9 @@ function main() {
     elif [[ "$1" == "--tf-version" ]]; then
       shift
       TF_VERSION_FLAG="--tf-version $1"
+    elif [[ "$1" == "--platform" ]]; then
+      shift
+      PLATFORM=$1
     fi
 
     if [[ -z "$1" ]]; then

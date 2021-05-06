@@ -16,6 +16,15 @@ licenses(["notice"])
 
 exports_files(["LICENSE"])
 
+config_setting(
+    name = "macos",
+    values = {
+        "apple_platform_type": "macos",
+        "cpu": "darwin",
+    },
+    visibility = ["//visibility:public"],
+)
+
 reverb_pytype_strict_library(
     name = "reverb",
     srcs = ["__init__.py"],

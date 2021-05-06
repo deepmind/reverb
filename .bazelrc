@@ -16,7 +16,6 @@ build --cxxopt="-std=c++14"
 build --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=0"
 build --auto_output_filter=subpackages
 build --copt="-Wall" --copt="-Wno-sign-compare"
-build --linkopt="-lrt -lm"
 
 # TF isn't built in dbg mode, so our dbg builds will segfault due to inconsistency
 # of defines when using tf's headers.  In particular in refcount.h.

@@ -2,6 +2,11 @@
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
+def is_darwin(ctx):
+    if ctx.os.name.lower().find("mac") != -1:
+        return True
+    return False
+
 # Sanitize a dependency so that it works correctly from code that includes
 # reverb as a submodule.
 def clean_dep(dep):
@@ -89,7 +94,6 @@ def _find_python_solib_path(repo_ctx):
         fail("Could not locate python shared library path:\n{}"
             .format(exec_result.stderr))
     version = exec_result.stdout.splitlines()[-1]
-    basename = "lib{}.so".format(version)
     exec_result = repo_ctx.execute(
         ["{}-config".format(version), "--configdir"],
         quiet = True,
@@ -97,11 +101,21 @@ def _find_python_solib_path(repo_ctx):
     if exec_result.return_code != 0:
         fail("Could not locate python shared library path:\n{}"
             .format(exec_result.stderr))
-    solib_dir = exec_result.stdout.splitlines()[-1]
+
+    if is_darwin(repo_ctx):
+        basename = "lib{}m.dylib".format(version)
+        solib_dir = "/".join(exec_result.stdout.splitlines()[-1].split("/")[:-2])
+    else:
+        basename = "lib{}.so".format(version)
+        solib_dir = exec_result.stdout.splitlines()[-1]
+
     full_path = repo_ctx.path("{}/{}".format(solib_dir, basename))
     if not full_path.exists:
-        fail("Unable to find python shared library file:\n{}/{}"
-            .format(solib_dir, basename))
+        basename = basename.replace('m.dylib', '.dylib')
+        full_path = repo_ctx.path("{}/{}".format(solib_dir, basename))
+        if not full_path.exists:
+            fail("Unable to find python shared library file:\n{}/{}"
+                .format(solib_dir, basename))
     return struct(dir = solib_dir, basename = basename)
 
 def _eigen_archive_repo_impl(repo_ctx):
@@ -220,17 +234,21 @@ filegroup(
 def _tensorflow_solib_repo_impl(repo_ctx):
     tf_lib_path = _find_tf_lib_path(repo_ctx)
     repo_ctx.symlink(tf_lib_path, "tensorflow_solib")
+    if is_darwin(repo_ctx):
+        suffix = "2.dylib"
+    else:
+        suffix = "so.2"
+
     repo_ctx.file(
         "BUILD",
         content = """
 cc_library(
     name = "framework_lib",
-    srcs = ["tensorflow_solib/libtensorflow_framework.so.2"],
+    srcs = ["tensorflow_solib/libtensorflow_framework.{suffix}"],
     deps = ["@python_includes", "@python_includes//:numpy_includes"],
     visibility = ["//visibility:public"],
 )
-""",
-    )
+""".format(suffix=suffix))
 
 def _python_includes_repo_impl(repo_ctx):
     python_include_path = _find_python_include_path(repo_ctx)
@@ -243,6 +261,12 @@ def _python_includes_repo_impl(repo_ctx):
         python_solib.basename,
     )
 
+    if is_darwin(repo_ctx):
+        # Fix Fatal Python error: PyThreadState_Get: no current thread
+        python_includes_srcs = ""
+    else:
+        python_includes_srcs = 'srcs = ["%s"],' % python_solib.basename
+
     # Note, "@python_includes" is a misnomer since we include the
     # libpythonX.Y.so in the srcs, so we can get access to python's various
     # symbols at link time.
@@ -252,7 +276,7 @@ def _python_includes_repo_impl(repo_ctx):
 cc_library(
     name = "python_includes",
     hdrs = glob(["python_includes/**/*.h"]),
-    srcs = ["{}"],
+    {srcs}
     includes = ["python_includes"],
     visibility = ["//visibility:public"],
 )
@@ -262,7 +286,7 @@ cc_library(
     includes = ["numpy_includes"],
     visibility = ["//visibility:public"],
 )
-""".format(python_solib.basename),
+""".format(srcs=python_includes_srcs),
         executable = False,
     )
 
@@ -330,8 +354,14 @@ def _reverb_protoc_archive(ctx):
         sha256 = ""
         version = override_version
 
+    if is_darwin(ctx):
+        platform = "osx"
+        sha256 = ""
+    else:
+        platform = "linux"
+
     urls = [
-        "https://github.com/protocolbuffers/protobuf/releases/download/v%s/protoc-%s-linux-x86_64.zip" % (version, version),
+        "https://github.com/protocolbuffers/protobuf/releases/download/v%s/protoc-%s-%s-x86_64.zip" % (version, version, platform),
     ]
     ctx.download_and_extract(
         url = urls,

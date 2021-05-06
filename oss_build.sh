@@ -89,16 +89,27 @@ for python_version in $PYTHON_VERSIONS; do
   fi
 
   if [ "$python_version" = "3.6" ]; then
-    export PYTHON_BIN_PATH=/usr/bin/python3.6 && export PYTHON_LIB_PATH=/usr/local/lib/python3.6/dist-packages
+    ABI=cp36
   elif [ "$python_version" = "3.7" ]; then
-    export PYTHON_BIN_PATH=/usr/local/bin/python3.7 && export PYTHON_LIB_PATH=/usr/local/lib/python3.7/dist-packages
     ABI=cp37
   elif [ "$python_version" = "3.8" ]; then
-    export PYTHON_BIN_PATH=/usr/bin/python3.8 && export PYTHON_LIB_PATH=/usr/local/lib/python3.8/dist-packages
     ABI=cp38
   else
     echo "Error unknown --python. Only [3.6|3.7|3.8]"
     exit 1
+  fi
+
+  export PYTHON_BIN_PATH=`which python${python_version}`
+  export PYTHON_LIB_PATH=`${PYTHON_BIN_PATH} -c 'import site; print(site.getsitepackages()[0])'`
+
+  if [ "$(uname)" = "Darwin" ]; then
+    bazel_config=""
+    version=`sw_vers -productVersion | sed 's/\./_/g' | cut -d"_" -f1,2`
+    PLATFORM="macosx_${version}_"`uname -m`
+  else
+    bazel_config="--config=manylinux2010"
+    bazel_config=""
+    PLATFORM="manylinux2010_x86_64"
   fi
 
   # Configures Bazel environment for selected Python version.
@@ -111,20 +122,20 @@ for python_version in $PYTHON_VERSIONS; do
   # someone's system unexpectedly. We are executing the python tests after
   # installing the final package making this approach satisfactory.
   # TODO(b/157223742): Execute Python tests as well.
-  bazel test -c opt --copt=-mavx --config=manylinux2010 --test_output=errors //reverb/cc/...
+  bazel test -c opt --copt=-mavx ${bazel_config} --test_output=errors //reverb/cc/...
 
   # Builds Reverb and creates the wheel package.
-  bazel build -c opt --copt=-mavx --config=manylinux2010 reverb/pip_package:build_pip_package
-  ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS
+  bazel build -c opt --copt=-mavx ${bazel_config} reverb/pip_package:build_pip_package
+  ./bazel-bin/reverb/pip_package/build_pip_package --dst $OUTPUT_DIR $PIP_PKG_EXTRA_ARGS --platform "${PLATFORM}"
 
   # Installs pip package.
-  $PYTHON_BIN_PATH -mpip install ${OUTPUT_DIR}*${ABI}*.whl
+  $PYTHON_BIN_PATH -mpip install --force-reinstall ${OUTPUT_DIR}*${ABI}*.whl
 
   if [ "$PYTHON_TESTS" = "true" ]; then
     echo "Run Python tests..."
     set +e
 
-    bash run_python_tests.sh |& tee ./unittest_log.txt
+    bash run_python_tests.sh 2>&1 | tee ./unittest_log.txt
     UNIT_TEST_ERROR_CODE=$?
     set -e
     if [[ $UNIT_TEST_ERROR_CODE != 0 ]]; then

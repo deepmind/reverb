@@ -112,6 +112,16 @@ class SetupToolsHelper(object):
       long_description = f.read()
 
     version, project_name = self._get_version()
+
+    so_lib_paths = [
+        i for i in os.listdir('.')
+        if os.path.isdir(i) and fnmatch.fnmatch(i, '_solib_*')
+    ]
+
+    matches = []
+    for path in so_lib_paths:
+      matches.extend(['../' + x for x in find_files('*', path) if '.py' not in x])
+
     setup(
         name=project_name,
         version=version,
@@ -126,6 +136,9 @@ class SetupToolsHelper(object):
         packages=find_packages(),
         headers=list(find_files('*.proto', 'reverb')),
         include_package_data=True,
+        package_data={
+            'reverb': matches,
+        },
         install_requires=self._get_required_packages(),
         extras_require={
             'tensorflow': self._get_tensorflow_packages(),

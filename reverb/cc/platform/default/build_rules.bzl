@@ -107,7 +107,7 @@ def reverb_cc_proto_library(name, srcs = [], deps = [], **kwargs):
         name = "{}_static".format(name),
         srcs = gen_srcs,
         hdrs = gen_hdrs,
-        deps = depset(deps + reverb_tf_deps()),
+        deps = depset([dep.replace(":", ":lib") + ".so" for dep in deps] + reverb_tf_deps()),
         alwayslink = 1,
         **kwargs
     )
@@ -294,6 +294,16 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, linkopts = [], **kwargs):
         fail("Argument out must end with '.py', but saw: {}".format(out))
 
     module_name = "lib{}_gen_op".format(name)
+    exported_symbols_file = "%s-exported-symbols.lds" % module_name
+    # gen_client_ops -> reverb_client
+    symbol = "reverb_{}".format(name.split('_')[1])
+    native.genrule(
+        name = module_name + "_exported_symbols",
+        outs = [exported_symbols_file],
+        cmd = "echo '*%s*' >$@" % symbol,
+        output_licenses = ["unencumbered"],
+        visibility = ["//visibility:private"],
+    )
     version_script_file = "%s-version-script.lds" % module_name
     native.genrule(
         name = module_name + "_version_script",
@@ -304,16 +314,23 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, linkopts = [], **kwargs):
     )
     native.cc_binary(
         name = "{}.so".format(module_name),
-        deps = [kernel_lib] + reverb_tf_deps() + [version_script_file],
+        deps = [kernel_lib] + reverb_tf_deps() + [
+            exported_symbols_file,
+            version_script_file
+        ],
         copts = tf_copts() + [
             "-fno-strict-aliasing",  # allow a wider range of code [aliasing] to compile.
             "-fvisibility=hidden",  # avoid symbol clashes between DSOs.
         ],
         linkshared = 1,
-        linkopts = linkopts + _rpath_linkopts(module_name) + [
-            "-Wl,--version-script",
-            "$(location %s)" % version_script_file,
-        ],
+        linkopts = linkopts + _rpath_linkopts(module_name) + select({
+            "//reverb:macos": [
+                "-Wl,-exported_symbols_list,$(location %s)" % exported_symbols_file,
+            ],
+            "//conditions:default": [
+                "-Wl,--version-script,$(location %s)" % version_script_file,
+            ],
+        }),
         **kwargs
     )
     native.genrule(
@@ -444,10 +461,15 @@ def reverb_pybind_extension(
             "-fexceptions",  # pybind relies on exceptions, required to compile.
             "-fvisibility=hidden",  # avoid pybind symbol clashes between DSOs.
         ],
-        linkopts = linkopts + _rpath_linkopts(module_name) + [
-            "-Wl,--version-script",
-            "$(location %s)" % version_script_file,
-        ],
+        linkopts = linkopts + _rpath_linkopts(module_name) +
+            select({"//reverb:macos": [
+                        "-Wl,-exported_symbols_list,$(location %s)" % exported_symbols_file,
+                    ],
+                    "//conditions:default": [
+                        "-Wl,--version-script",
+                        "$(location %s)" % version_script_file,
+                    ],
+        }),
         deps = depset(deps + [
             exported_symbols_file,
             version_script_file,

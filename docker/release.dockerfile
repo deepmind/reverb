@@ -64,6 +64,7 @@ ARG pip_dependencies=' \
       numpy \
       oauth2client \
       pandas \
+      platform \
       portpicker'
 
 # TODO(b/154930404): Update to 2.2.0 once it's out.  May need to
