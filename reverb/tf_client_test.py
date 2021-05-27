@@ -25,7 +25,6 @@ from reverb import server
 from reverb import tf_client
 import tensorflow.compat.v1 as tf
 
-
 def make_server():
   return server.Server(
       tables=[
@@ -159,6 +158,39 @@ class UpdatePrioritiesOpTest(tf.test.TestCase):
         break
     else:
       self.fail('Updated item was not found')
+
+
+  def test_delete_key_is_applied(self):
+    # Start with 4 items
+    for i in range(4):
+      self._client.insert([np.array([i], dtype=np.uint32)], {'dist': 1})
+
+    # Until we have recieved all 4 items.
+    items = {}
+    while len(items) < 4:
+      item = next(self._client.sample('dist'))[0]
+      items[item.info.key] = item.info.probability
+
+    # remove 2 items
+    items_to_keep = [*items.keys()][:2]
+    items_to_remove = [*items.keys()][2:]
+    with self.session() as session:
+      client = tf_client.TFClient(self._client.server_address)
+      for key in items_to_remove:
+        update_op = client.update_priorities(
+          table=tf.constant('dist'),
+          keys=tf.constant([], dtype=tf.uint64),
+          priorities=tf.constant([], dtype=tf.float64),
+          keys_to_delete=tf.constant([key], dtype=tf.uint64))
+        self.assertIsNone(session.run(update_op))
+
+    # 2 remaining items must persist
+    final_items = {}
+    for _ in range(1000):
+      item = next(self._client.sample('dist'))[0]
+      self.assertTrue(item.info.key in items_to_keep)
+      final_items[item.info.key] = item.info.probability
+    self.assertEqual(len(final_items), 2)
 
 
 class InsertOpTest(tf.test.TestCase):
